@@ -2,13 +2,14 @@ import io
 import pandas as pd
 from sqlalchemy.orm import Session
 from app.db.models import Company, LeadSource, DiscoveryJob
+from app.services.normalization import normalize_domain, check_for_duplicates
 
 def run_demo_mock_connector(job_id: str, db: Session):
-    """Deterministic Mock Data Generator for Discovery Job"""
+    """Mock Lead Discovery with Normalization & Deduplication Checks"""
     mock_leads = [
         {
-            "name": "Acme Tech Solutions",
-            "domain": "acmetech.com",
+            "name": "Acme Tech Solutions Inc.",
+            "domain": "https://www.acmetech.com/about",
             "industry": "Software & Cloud Services",
             "location": "San Francisco, CA",
             "company_size": "50-200 employees",
@@ -23,8 +24,8 @@ def run_demo_mock_connector(job_id: str, db: Session):
             "website_url": "https://globallogistics.io"
         },
         {
-            "name": "BioHealth Innovations",
-            "domain": "biohealth.org",
+            "name": "BioHealth Innovations LLC",
+            "domain": "http://biohealth.org",
             "industry": "Healthcare & Biotech",
             "location": "Boston, MA",
             "company_size": "10-50 employees",
@@ -41,18 +42,25 @@ def run_demo_mock_connector(job_id: str, db: Session):
 
     saved_count = 0
     for lead in mock_leads:
+        norm_domain = normalize_domain(lead["domain"])
+        dup_check = check_for_duplicates(norm_domain, lead["name"], db)
+        
+        review_status = "NEW"
+        if dup_check["is_duplicate"]:
+            review_status = "NEEDS_REVIEW" if dup_check["match_type"] == "NAME_MATCH_NEEDS_REVIEW" else "DUPLICATE"
+
         company = Company(
             discovery_job_id=job_id,
             name=lead["name"],
-            domain=lead["domain"],
+            domain=norm_domain,
             industry=lead["industry"],
             location=lead["location"],
             company_size=lead["company_size"],
             website_url=lead["website_url"],
-            review_status="NEW"
+            review_status=review_status
         )
         db.add(company)
-        db.flush()  # company.id retrieve karne ke liye
+        db.flush()
 
         source = LeadSource(
             company_id=company.id,
@@ -69,19 +77,20 @@ def run_demo_mock_connector(job_id: str, db: Session):
 
 
 def process_csv_import(file_bytes: bytes, db: Session):
-    """CSV File Parsing and Lead Saving"""
+    """CSV Import with Normalization Integration"""
     df = pd.read_csv(io.BytesIO(file_bytes))
     
     saved_count = 0
     for _, row in df.iterrows():
         name = str(row.get("name", row.get("Company Name", "Unknown Company")))
-        domain = str(row.get("domain", row.get("Domain", "")))
+        raw_domain = str(row.get("domain", row.get("Domain", "")))
+        norm_domain = normalize_domain(raw_domain)
         industry = str(row.get("industry", row.get("Industry", "")))
         location = str(row.get("location", row.get("Location", "")))
         
         company = Company(
             name=name,
-            domain=domain if domain else None,
+            domain=norm_domain if norm_domain else None,
             industry=industry if industry else None,
             location=location if location else None,
             review_status="NEW"

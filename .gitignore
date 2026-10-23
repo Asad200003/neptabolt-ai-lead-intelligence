@@ -1,0 +1,14 @@
+# Sensitive environment files
+.env
+.env.local
+.env.*.local
+
+# Python cache & venv
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Database files
+*.db
+*.sqlite3
